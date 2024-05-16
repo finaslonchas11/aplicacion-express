@@ -1,9 +1,16 @@
 //Importamos las librarías requeridas
 const express = require('express');
 const bodyParser = require('body-parser');
+const cors = require('cors');
 
 //Documentación en https://expressjs.com/en/starter/hello-world.html
 const app = express();
+
+let corsOptions = {
+	origin: '*',
+};
+
+app.use(cors(corsOptions));
 
 //Creamos un parser de tipo application/json
 //Documentación en https://expressjs.com/en/resources/middleware/body-parser.html
@@ -13,7 +20,7 @@ const jsonParser = bodyParser.json();
 const sqlite3 = require('sqlite3').verbose();
 let db = null;
 
-const openDB = () => {
+const openDB = async () => {
 	// Generar un objeto de DB
 	let db = new sqlite3.Database('TODOS', (err) => {
 		err
@@ -29,14 +36,13 @@ const openDB = () => {
         );
         `;
 
-	db.run(createTableQuery, (err) => {
+	await db.run(createTableQuery, async (err) => {
 		if (err) {
 			console.log('Error al crear tabla: ', err);
 		} else {
 			console.log('Tabla creada correctamente');
 		}
 	});
-
 	return db;
 };
 
@@ -67,7 +73,7 @@ app.post('/login', jsonParser, function (req, res) {
 });
 
 //Creamos un endpoint para recibir los todos
-app.post('/agrega_todo', jsonParser, function (req, res) {
+app.post('/agrega_todo', jsonParser, async function (req, res) {
 	//Imprimimos el contenido del body
 	console.log("Parámetros enviados a endpoint 'agregar_todo'", req.body);
 
@@ -75,54 +81,79 @@ app.post('/agrega_todo', jsonParser, function (req, res) {
 
 	// Mandamos a abrir nuestra conexión a DB
 	// y asignamos objeto de retorno a una variable
-	let db = openDB();
+	let db = await openDB();
 
 	// Generamos la query a ejecutar con los datos obtenidos por body.
 	let query = `
     INSERT INTO TODOS ('todo')
     VALUES( '${todo}')`;
 
-	// Ejecutamos la query contra la DB y evaluamos resultados
-	db.run(query, (err, rows) => {
-		if (err) {
-			console.log('Error al insertar TODO: ', err);
-		} else {
-			console.log('TODO creado correctamente');
-		}
-	});
+	if (db) {
+		// Ejecutamos la query contra la DB y evaluamos resultados
+		db.run(query, (err, rows) => {
+			if (err) {
+				console.log('Error al insertar TODO: ', err);
+			} else {
+				console.log('TODO creado correctamente');
+			}
+		});
 
-	// Cerramos nuestra DB
-	closeDB(db);
+		// Cerramos nuestra DB
+		closeDB(db);
 
-	//Enviamos de regreso la respuesta
-	res.setHeader('Content-Type', 'application/json');
-	res
-		.status(201)
-		.send(JSON.stringify({ Response: `TODO '${todo}' creado correctamente` }));
-});
-
-app.get('/get_todos', jsonParser, function (req, res) {
-	// Mandamos a abrir nuestra conexión a DB
-	// y asignamos objeto de retorno a una variable
-	let db = openDB();
-
-	// Generamos la query a ejecutar para retornar todos los datos.
-	let query = `SELECT * FROM TODOS;`;
-
-	// Ejecutamos la query contra la DB y evaluamos resultados
-	db.all(query, (err, rows) => {
-		if (err) {
-			console.log('Error al devolver todos: ', err);
-		} else {
-			console.log('Todos recuperados: ', rows);
-		}
 		//Enviamos de regreso la respuesta
 		res.setHeader('Content-Type', 'application/json');
-		res.status(201).send(JSON.stringify({ todos: rows }));
-	});
+		res
+			.status(201)
+			.json(
+				JSON.stringify({ Response: `TODO '${todo}' creado correctamente` })
+			);
+		// .send(
+		// 	JSON.stringify({ Response: `TODO '${todo}' creado correctamente` })
+		// );
+	} else {
+		//Enviamos de regreso la respuesta
+		res.setHeader('Content-Type', 'application/json');
+		res.status(404).send(JSON.stringify({ Response: `Database not found` }));
+	}
+});
 
-	// Cerramos nuestra DB
-	closeDB(db);
+app.get('/get_todos', jsonParser, async function (req, res) {
+	// Mandamos a abrir nuestra conexión a DB
+	// y asignamos objeto de retorno a una variable
+	openDB()
+		.then((db, err) => {
+			// Generamos la query a ejecutar para retornar todos los datos.
+			let query = `SELECT * FROM TODOS;`;
+
+			if (db) {
+				// Ejecutamos la query contra la DB y evaluamos resultados
+				db.all(query, (err, rows) => {
+					if (err) {
+						console.log('Error al devolver todos: ', err);
+					} else {
+						console.log('Todos recuperados: ', rows);
+					}
+					//Enviamos de regreso la respuesta
+					// res.setHeader('Content-Type', 'application/json');
+					res.status(201).json(JSON.stringify({ todos: rows }));
+					// .send(JSON.stringify({ todos: rows }));
+				});
+
+				// Cerramos nuestra DB
+				closeDB(db);
+			} else {
+				//Enviamos de regreso la respuesta
+				res.setHeader('Content-Type', 'application/json');
+				res.status(400).send(JSON.stringify({ error: 'Database not found' }));
+			}
+		})
+		.catch((err) => {
+			console.log('Error en catch del fetch ---> ', err);
+			//Enviamos de regreso la respuesta
+			res.setHeader('Content-Type', 'application/json');
+			res.status(400).send(JSON.stringify({ error: err }));
+		});
 });
 
 //Corremos el servidor en el puerto 3000
